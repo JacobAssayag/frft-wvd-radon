@@ -16,7 +16,7 @@ Date   : 2026-02-11
 """
 
 import numpy as np
-from scipy.signal import hilbert
+from scipy.signal import hilbert, resample
 from scipy.ndimage import rotate as ndrotate
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
@@ -68,8 +68,6 @@ def wigner_ville(x, n_fbins=None):
     ts    : 1-D int array  (N,)
     freqs : 1-D float array (N,)
     """
-    from scipy.signal import resample
-    
     x = np.asarray(x, dtype=complex).ravel()
     N = x.shape[0]
     if n_fbins is None:
