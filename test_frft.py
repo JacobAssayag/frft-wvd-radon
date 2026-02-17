@@ -220,8 +220,12 @@ class TestRadonWignerFrFT:
     """Verify that radon_wigner_frft computes the FrFT-based projection
     at every angle in (0, pi), including the intermediate ones."""
 
-    @pytest.mark.parametrize("theta", [0, 15, 30, 45, 60, 75, 90,
-                                        105, 120, 135, 150, 165, 180])
+    _THETA_VALS = [
+        0, 15, 30, 45, 60, 75, 90,
+        105, 120, 135, 150, 165, 180,
+    ]
+
+    @pytest.mark.parametrize("theta", _THETA_VALS)
     def test_matches_dfrft(self, theta):
         """radon_wigner_frft must equal |dfrft(x, theta/90)|^2."""
         N = 127
@@ -239,7 +243,7 @@ class TestRadonWignerFrFT:
         _, x, _ = build_test_signal(N=N, fs=512.0)
         ref_energy = np.sum(np.abs(x)**2)
 
-        for theta in np.linspace(0, 180, 37):
+        for theta in np.linspace(0, 180, 37):  # 5-degree steps
             proj = radon_wigner_frft(x, theta)
             np.testing.assert_allclose(
                 np.sum(proj), ref_energy, rtol=1e-8,
