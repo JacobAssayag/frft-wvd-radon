@@ -141,8 +141,8 @@ class TestRadon:
         N = 127
         t, x, fs = build_test_signal(N=N, fs=512.0)
         wvd, _, _ = wigner_ville(x, n_fbins=N)
-        wvd_shifted = np.fft.fftshift(wvd, axes=0)
-        padded, _, _ = pad_wvd_for_rotation(wvd_shifted)
+        # No fftshift - WVD and FrFT use same frequency grid
+        padded, _, _ = pad_wvd_for_rotation(wvd)
 
         proj = radon_projection(padded, 0.0, N)
         proj = np.abs(proj); proj /= proj.max()
@@ -156,18 +156,18 @@ class TestRadon:
         N = 127
         t, x, fs = build_test_signal(N=N, fs=512.0)
         wvd, _, _ = wigner_ville(x, n_fbins=N)
-        wvd_shifted = np.fft.fftshift(wvd, axes=0)
-        padded, _, _ = pad_wvd_for_rotation(wvd_shifted)
+        # No fftshift - WVD and FrFT use same frequency grid
+        padded, _, _ = pad_wvd_for_rotation(wvd)
 
         proj = radon_projection(padded, 90.0, N)
         proj = np.abs(proj); proj /= proj.max()
 
-        # Freq marginal of the shifted WVD
-        freq_marg = np.abs(wvd_shifted.sum(axis=1))
+        # Freq marginal of the WVD (not shifted)
+        freq_marg = np.abs(wvd.sum(axis=1))
         freq_marg /= freq_marg.max()
 
         r = np.corrcoef(proj, freq_marg)[0, 1]
-        print(f"  Radon 90° vs shifted freq marginal: r = {r:.4f}")
+        print(f"  Radon 90° vs freq marginal: r = {r:.4f}")
         assert r > 0.90, f"Radon 90°: r = {r}"
 
 
@@ -180,8 +180,8 @@ class TestEquivalence:
         N = 127
         t, x, fs = build_test_signal(N=N, fs=512.0)
         wvd, _, _ = wigner_ville(x, n_fbins=N)
-        wvd_shifted = np.fft.fftshift(wvd, axes=0)
-        padded, _, _ = pad_wvd_for_rotation(wvd_shifted)
+        # No fftshift - WVD and FrFT use same frequency grid
+        padded, _, _ = pad_wvd_for_rotation(wvd)
 
         X_a = dfrft(x, alpha)
         fd = np.abs(X_a)**2

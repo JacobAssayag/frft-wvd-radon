@@ -261,9 +261,8 @@ def main():
                        expected_f / expected_f.max())[0, 1]
     print(f"  WVD freq marginal  vs |FFT_N|²  :  r = {r_f:.6f}")
 
-    # fftshift & pad
-    wvd_shifted = np.fft.fftshift(wvd_matrix, axes=0)
-    padded_wvd, pad_r, pad_c = pad_wvd_for_rotation(wvd_shifted)
+    # Pad WVD for rotation (no fftshift needed - WVD and FrFT use same freq grid)
+    padded_wvd, pad_r, pad_c = pad_wvd_for_rotation(wvd_matrix)
 
     # Radon 0°
     proj0 = radon_projection(padded_wvd, 0.0, N)
