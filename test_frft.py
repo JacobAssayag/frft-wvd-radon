@@ -141,8 +141,8 @@ class TestRadon:
         N = 127
         t, x, fs = build_test_signal(N=N, fs=512.0)
         wvd, _, _ = wigner_ville(x, n_fbins=N)
-        # No fftshift - WVD and FrFT use same frequency grid
-        padded, _, _ = pad_wvd_for_rotation(wvd)
+        wvd_shifted = np.fft.fftshift(wvd, axes=0)
+        padded, _, _ = pad_wvd_for_rotation(wvd_shifted)
 
         proj = radon_projection(padded, 0.0, N)
         proj = np.abs(proj); proj /= proj.max()
@@ -156,18 +156,18 @@ class TestRadon:
         N = 127
         t, x, fs = build_test_signal(N=N, fs=512.0)
         wvd, _, _ = wigner_ville(x, n_fbins=N)
-        # No fftshift - WVD and FrFT use same frequency grid
-        padded, _, _ = pad_wvd_for_rotation(wvd)
+        wvd_shifted = np.fft.fftshift(wvd, axes=0)
+        padded, _, _ = pad_wvd_for_rotation(wvd_shifted)
 
         proj = radon_projection(padded, 90.0, N)
         proj = np.abs(proj); proj /= proj.max()
 
-        # Freq marginal of the WVD (not shifted)
-        freq_marg = np.abs(wvd.sum(axis=1))
+        # Freq marginal of the shifted WVD
+        freq_marg = np.abs(wvd_shifted.sum(axis=1))
         freq_marg /= freq_marg.max()
 
         r = np.corrcoef(proj, freq_marg)[0, 1]
-        print(f"  Radon 90° vs freq marginal: r = {r:.4f}")
+        print(f"  Radon 90° vs shifted freq marginal: r = {r:.4f}")
         assert r > 0.90, f"Radon 90°: r = {r}"
 
 
@@ -177,12 +177,11 @@ class TestRadon:
 class TestEquivalence:
     @pytest.mark.parametrize("alpha", [0.0, 0.5, 1.0, 1.5, 2.0])
     def test_frft_matches_radon(self, alpha):
-        """Test FrFT-Radon equivalence at angles 0°, 45°, 90°, 135°, 180°."""
         N = 127
         t, x, fs = build_test_signal(N=N, fs=512.0)
         wvd, _, _ = wigner_ville(x, n_fbins=N)
-        # No fftshift - WVD and FrFT use same frequency grid
-        padded, _, _ = pad_wvd_for_rotation(wvd)
+        wvd_shifted = np.fft.fftshift(wvd, axes=0)
+        padded, _, _ = pad_wvd_for_rotation(wvd_shifted)
 
         X_a = dfrft(x, alpha)
         fd = np.abs(X_a)**2
@@ -195,13 +194,4 @@ class TestEquivalence:
 
         r = np.corrcoef(fd, rd)[0, 1]
         print(f"  α={alpha}, θ={theta}°: r = {r:.4f}")
-        
-        # Cardinal angles (0°, 90°, 180°) should have very high correlation
-        # Intermediate angles have known limitations in discrete FrFT-Radon equivalence
-        if alpha in [0.0, 1.0, 2.0]:
-            threshold = 0.90
-        else:
-            # Intermediate angles: accept what's achievable
-            threshold = -0.20  # Just check it's computed (not NaN/inf)
-        
-        assert r > threshold, f"α={alpha}, θ={theta}°: r = {r} (threshold={threshold})"
+        assert r > 0.90, f"α={alpha}, θ={theta}°: r = {r}"

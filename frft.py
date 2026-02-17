@@ -16,7 +16,7 @@ Date   : 2026-02-11
 """
 
 import numpy as np
-from scipy.signal import hilbert, resample
+from scipy.signal import hilbert
 from scipy.ndimage import rotate as ndrotate
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
@@ -57,10 +57,19 @@ def wigner_ville(x, n_fbins=None):
     Compute the Wigner-Ville Distribution on the N-point DFT frequency
     grid, suitable for comparison with the FrFT.
 
-    Uses 2× upsampling of the signal to correctly align the WVD frequency
-    grid with the N-point DFT grid. The upsampled signal has half the
-    normalized frequency, which compensates for the frequency-doubling
-    effect of the bilinear WVD kernel.
+    The bilinear product x[t+τ]·x*[t-τ] has 2× the bandwidth of x,
+    so we first compute the WVD with 2N frequency bins (to avoid
+    aliasing), then FOLD back to N bins:
+
+        W_N[k, t]  =  W_2N[k, t]  +  W_2N[k + N, t]
+
+    This places the WVD on the same N-point frequency grid as the DFT,
+    ensuring that:
+        Σ_t  W_N[k, t]  =  |X[k]|²     (N-point DFT)
+        Σ_k  W_N[k, t]  =  |x[t]|²     (time density)
+
+    Both marginals are now on N-point grids → the WVD is a proper
+    N×N time-frequency representation compatible with the FrFT.
 
     Returns
     -------
@@ -73,28 +82,11 @@ def wigner_ville(x, n_fbins=None):
     if n_fbins is None:
         n_fbins = N
 
-    # Upsample signal by 2× using sinc interpolation
-    N2 = 2 * N
-    x_up = resample(x, N2)
+    # Compute at 2N freq bins to avoid aliasing
+    wvd_2N = wigner_ville_raw(x, n_fbins=2 * n_fbins)
 
-    # Zero-pad upsampled signal for full lag access
-    xp = np.zeros(3 * N2, dtype=complex)
-    xp[N2: 2 * N2] = x_up
-
-    # Compute WVD of upsampled signal
-    tfr = np.zeros((n_fbins, N2), dtype=complex)
-    for icol in range(N2):
-        t_pad = icol + N2
-        tau_max = min(N2 - 1, n_fbins // 2 - 1)
-        tau = np.arange(-tau_max, tau_max + 1).astype(int)
-        freq_idx = np.remainder(n_fbins + tau, n_fbins).astype(int)
-        tfr[freq_idx, icol] = xp[t_pad + tau] * np.conj(xp[t_pad - tau])
-
-    tfr = np.fft.fft(tfr, axis=0)
-    tfr = np.real(tfr)
-
-    # Downsample time axis by 2 to get back to N columns
-    tfr = tfr[:, ::2]
+    # Fold to N bins: W[k] + W[k + N]
+    tfr = wvd_2N[:n_fbins, :] + wvd_2N[n_fbins:, :]
 
     ts = np.arange(N)
     freqs = np.arange(n_fbins, dtype=float) / n_fbins
@@ -259,8 +251,9 @@ def main():
                        expected_f / expected_f.max())[0, 1]
     print(f"  WVD freq marginal  vs |FFT_N|²  :  r = {r_f:.6f}")
 
-    # Pad WVD for rotation (no fftshift needed - WVD and FrFT use same freq grid)
-    padded_wvd, pad_r, pad_c = pad_wvd_for_rotation(wvd_matrix)
+    # fftshift & pad
+    wvd_shifted = np.fft.fftshift(wvd_matrix, axes=0)
+    padded_wvd, pad_r, pad_c = pad_wvd_for_rotation(wvd_shifted)
 
     # Radon 0°
     proj0 = radon_projection(padded_wvd, 0.0, N)
