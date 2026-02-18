@@ -176,6 +176,65 @@ def dfrft(x, alpha):
     return Fa_x
 
 
+def centered_dfrft(x, alpha):
+    """
+    Centered discrete fractional Fourier transform.
+
+    Shifts the input so that sample N//2 is at index 0, applies the
+    standard DFrFT, then shifts the output back.  This ensures that
+    both the input and output are indexed symmetrically about the
+    centre of the array, which is required for the Radon-Wigner
+    equivalence at intermediate angles.
+
+    Parameters
+    ----------
+    x     : array_like, length N
+    alpha : float - fractional order (period 4)
+
+    Returns
+    -------
+    ndarray, length N - centred FrFT of *x*
+    """
+    N = len(x)
+    alpha = float(alpha) % 4
+    x_c = np.roll(np.asarray(x, dtype=complex), -N // 2)
+    V, ks = _dft_eigenvectors(N)
+    frac_eigenvalues = np.exp(-1j * np.pi * alpha * ks / 2.0)
+    result = V @ (frac_eigenvalues * (V.T @ x_c))
+    return np.roll(result, N // 2)
+
+
+# =========================================================================
+# 3b. RADON-WIGNER PROJECTION VIA FrFT
+# =========================================================================
+def radon_wigner_frft(x, theta_deg):
+    """
+    Compute the Radon-Wigner projection at angle theta via the FrFT.
+
+    By the Radon-Wigner theorem the projection of the Wigner-Ville
+    distribution at angle theta equals the squared magnitude of the
+    fractional Fourier transform at order alpha = theta / 90 degrees:
+
+        R_theta{W_x}(u) = |F_alpha{x}(u)|^2
+
+    This function works at **every** angle in [0, 180], including
+    the intermediate ones that the rotation-based Radon approximation
+    cannot reach accurately in the discrete case.
+
+    Parameters
+    ----------
+    x         : array_like - input signal (complex analytic recommended)
+    theta_deg : float      - projection angle in degrees, theta in [0, 180]
+
+    Returns
+    -------
+    projection : ndarray - energy density (Radon-Wigner projection)
+    """
+    alpha = theta_deg / 90.0
+    X_a = dfrft(x, alpha)
+    return np.abs(X_a) ** 2
+
+
 # =========================================================================
 # 4.  TEST SIGNAL
 # =========================================================================
@@ -196,14 +255,27 @@ def build_test_signal(N=513, fs=1024.0):
 # =========================================================================
 # 5.  PRE-COMPUTE
 # =========================================================================
-def precompute(x, N, padded_wvd, n_angles=361):
+def precompute(x, N, padded_wvd, n_angles=361, centered=False):
+    """Pre-compute FrFT densities, Radon projections and correlations.
+
+    Parameters
+    ----------
+    x          : input signal
+    N          : signal length
+    padded_wvd : zero-padded WVD matrix ready for rotation
+    n_angles   : number of alpha values in [0, 2]
+    centered   : if True, use the centred DFrFT for better
+                 intermediate-angle Radon-FrFT agreement
+    """
     alphas = np.linspace(0.0, 2.0, n_angles)
     frft_densities  = np.zeros((n_angles, N))
     radon_densities = np.zeros((n_angles, N))
     correlations    = np.zeros(n_angles)
 
+    _frft_func = centered_dfrft if centered else dfrft
+
     for i, a in enumerate(alphas):
-        X_a = dfrft(x, a)
+        X_a = _frft_func(x, a)
         fd  = np.abs(X_a)**2
         fd /= fd.max() if fd.max() > 0 else 1.0
         frft_densities[i] = fd
@@ -259,31 +331,36 @@ def main():
                        expected_f / expected_f.max())[0, 1]
     print(f"  WVD freq marginal  vs |FFT_N|²  :  r = {r_f:.6f}")
 
-    # Pad WVD for rotation (no fftshift needed - WVD and FrFT use same freq grid)
-    padded_wvd, pad_r, pad_c = pad_wvd_for_rotation(wvd_matrix)
+    # Pad WVD for rotation.
+    # fftshift on the frequency axis (axis 0) centres DC so that the
+    # rotation-based Radon transform and the centred DFrFT share the
+    # same coordinate origin - this greatly improves the equivalence
+    # at intermediate angles for signals whose energy is near DC.
+    wvd_shifted = np.fft.fftshift(wvd_matrix, axes=0)
+    padded_wvd, pad_r, pad_c = pad_wvd_for_rotation(wvd_shifted)
 
-    # Radon 0°
+    # Radon 0° vs centred FrFT alpha=0
     proj0 = radon_projection(padded_wvd, 0.0, N)
     proj0 = np.abs(proj0); proj0 /= proj0.max()
     expected_t_norm = expected_t / expected_t.max()
-    r_r0 = np.corrcoef(proj0, expected_t_norm)[0, 1]
-    print(f"  Radon θ=0°         vs |x(t)|²  :  r = {r_r0:.6f}")
+    frft0 = np.abs(centered_dfrft(x, 0.0))**2; frft0 /= frft0.max()
+    r_r0 = np.corrcoef(proj0, frft0)[0, 1]
+    print(f"  Radon theta=0      vs cFrFT a=0 :  r = {r_r0:.6f}")
 
-    # FrFT α=0
-    frft0 = np.abs(dfrft(x, 0.0))**2; frft0 /= frft0.max()
+    # FrFT alpha=0
     r_f0 = np.corrcoef(frft0, expected_t_norm)[0, 1]
-    print(f"  FrFT α=0           vs |x(t)|²  :  r = {r_f0:.6f}")
+    print(f"  FrFT alpha=0       vs |x(t)|^2  :  r = {r_f0:.6f}")
 
-    # FrFT α=1 vs freq marginal
-    frft1 = np.abs(dfrft(x, 1.0))**2; frft1 /= frft1.max()
+    # FrFT alpha=1 vs freq marginal
+    frft1 = np.abs(centered_dfrft(x, 1.0))**2; frft1 /= frft1.max()
     r_f1 = np.corrcoef(frft1, expected_f / expected_f.max())[0, 1]
-    print(f"  FrFT α=1           vs |FFT_N|²  :  r = {r_f1:.6f}")
+    print(f"  FrFT alpha=1       vs |FFT_N|^2 :  r = {r_f1:.6f}")
 
-    # Radon 90° vs FrFT α=1
+    # Radon 90° vs centred FrFT alpha=1
     proj90 = radon_projection(padded_wvd, 90.0, N)
     proj90 = np.abs(proj90); proj90 /= proj90.max()
     r_90 = np.corrcoef(proj90, frft1)[0, 1]
-    print(f"  Radon θ=90°        vs FrFT α=1  :  r = {r_90:.6f}")
+    print(f"  Radon theta=90     vs cFrFT a=1 :  r = {r_90:.6f}")
 
     print("=" * 72)
     all_r = [r_t, r_f, r_r0, r_f0, r_f1]
@@ -297,7 +374,7 @@ def main():
     print("Pre-computing FrFT & Radon for 361 angles … ", end="", flush=True)
     n_angles = 361
     alphas, frft_all, radon_all, corr_all = precompute(
-        x, N, padded_wvd, n_angles=n_angles)
+        x, N, padded_wvd, n_angles=n_angles, centered=True)
     print("done.")
 
     print(f"\n[α = 0]  r = {corr_all[0]:.6f}")
